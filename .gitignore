@@ -2,3 +2,4 @@
 /OSM_*
 *.code-workspace
 *.qgz
+launch.json

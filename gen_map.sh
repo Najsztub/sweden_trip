@@ -8,14 +8,13 @@ do
 case $i in
     -g|--gen)
     gen=true
-    shift # past argument=value
+    shift
     ;;
     -m|--merge)
     merge=true
-    shift # past argument=value
+    shift 
     ;;
     *)
-          # unknown option
     ;;
 esac
 done

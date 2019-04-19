@@ -122,7 +122,7 @@ class Tiles:
             img.save(img_file, 'PNG')
 
 
-class Rect:
+class Box:
     def __init__(self, x, y, dx, dy):
         self.x = x
         self.y = y
@@ -211,7 +211,7 @@ def gen_rects(tiles, dx=10, dy=10, minpx=0):
         for n_y in range(int(np.ceil(size_y/dy))):
             d_x = min((n_x+1)*dx, size_x) - n_x * dx
             d_y = min((n_y+1)*dy, size_y) - n_y * dy
-            box = Rect(n_x*dx, n_y*dy, d_x, d_y)
+            box = Box(n_x*dx, n_y*dy, d_x, d_y)
             subarr = tiles.tile_array[box.y:box.y1, box.x:box.x1]
             if subarr.sum((0, 1)) > minpx:
                 box_list.append(box)
@@ -250,11 +250,12 @@ def gen_rects_from_track(track, dx=10, dy=10, border=1):
     # Initialize Range with empty range
     Range.reset()
     number_points = len(track[0])
-    rects = []
+    boxes = []
     prev_P = False
     prev_extent = {}
     for idx, point in enumerate(zip(track[0], track[1])):
         extent = Range.get_extent(point)
+        # TODO: Allow for float coords in boxes
         P = (extent['dx'] <= (dx - border)) and (extent['dy'] <= (dy - border))
         L = (extent['dx'] <= (dy - border)) and (extent['dy'] <= (dx - border))
         # If neither Portrait nor Landscape view fits, create a rectangle 
@@ -270,20 +271,20 @@ def gen_rects_from_track(track, dx=10, dy=10, border=1):
                 rot_dy = dx
                 x = prev_extent['x'][0]
                 y = prev_extent['y'][0] - (rot_dy - prev_extent['dy']) / 2
-            rects.append(Rect(int(x), int(y), rot_dx, rot_dy))
+            boxes.append(Box(int(x), int(y), rot_dx, rot_dy))
             prev_P = False
             prev_extent = {}
             Range.reset()
             continue
         prev_extent = extent
         prev_P = P
-    return rects
+    return boxes
 
 
 if __name__ == "__main__":
     # Parse command line
     parser = argparse.ArgumentParser(description='Create printable maps from downloaded OSM tiles.')
-    parser.add_argument("tile_path", help="Directory with OSM PNG tiles: /\{zoom\}/\{x\}/\{y\}.png")
+    parser.add_argument("tile_path", help=r"Directory with OSM PNG tiles: /{zoom}/{x}/{y}.png")
     parser.add_argument(
         '-z',
         action="store",
@@ -354,6 +355,7 @@ if __name__ == "__main__":
 
     # Get rectangles
     gpx_trace = tiles.import_gpx(args.gpx)
+    # TODO: Create maps with all tiles if no GPX is given
     #rects = gen_rects(tile_array, dx=11, dy=15, minpx=1)
     rects = gen_rects_from_track(gpx_trace, dx=args.nx, dy=args.ny)
     print("Number of charts: ", len(rects))
