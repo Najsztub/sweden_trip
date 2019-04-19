@@ -28,7 +28,7 @@ if __name__ == "__main__":
     # Read files
     files = [os.path.join(args.img_dir, i) for i in os.listdir(args.img_dir) if i.startswith(args.prefix)]
     files.sort(key=lambda x: int(re.search(r'([0-9]+)\.png', x)[1]))
-
+    print("Merging images...")
     images = []
     for idx, f in enumerate(files):
         print("Loading %s/%s" % (idx+1, len(files)))

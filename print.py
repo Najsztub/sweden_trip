@@ -3,6 +3,7 @@ import re
 import numpy as np
 import math
 from PIL import Image, ImageDraw, ImageOps, ImageEnhance, ImageFont
+import argparse
 import gpxpy
 
 import matplotlib.pyplot as plt
@@ -34,6 +35,7 @@ class Tiles:
             for f in files[2]:
                 y = re.search('[0-9]+', f)[0]
                 tiles.append((int(x), int(y)))
+        print("Found %s tiles." % len(tiles))
         return tiles
 
     def gen_tile_array(self, tiles):
@@ -118,7 +120,6 @@ class Tiles:
                 img = enhancer.enhance(1.25).convert('L')
             # Save as PNG
             img.save(img_file, 'PNG')
-
 
 
 class Rect:
@@ -280,17 +281,82 @@ def gen_rects_from_track(track, dx=10, dy=10, border=1):
 
 
 if __name__ == "__main__":
+    # Parse command line
+    parser = argparse.ArgumentParser(description='Create printable maps from downloaded OSM tiles.')
+    parser.add_argument("tile_path", help="Directory with OSM PNG tiles: /\{zoom\}/\{x\}/\{y\}.png")
+    parser.add_argument(
+        '-z',
+        action="store",
+        dest="zoom",
+        type=int,
+        default=13,
+        help="OSM zoom level"
+    )
+    parser.add_argument(
+        '--gpx',
+        action="store",
+        dest="gpx",
+        type=str,
+        help="GPX trace to produce map",
+        required=True
+    )
+    parser.add_argument(
+        '-o',
+        action="store",
+        dest="output_dir",
+        type=str,
+        default=".",
+        help="output directory"
+    )
+    parser.add_argument(
+        '-p',
+        action="store",
+        dest="map_prefix",
+        type=str,
+        default="stitch",
+        help="output map prefix, 'stitch' by default"
+    )
+    parser.add_argument(
+        '--gray',
+        action="store_true",
+        dest="gray",
+        default=False,
+        help="output as grayscale"
+    )
+    parser.add_argument(
+        '--water',
+        action="store_true",
+        dest="water",
+        default=False,
+        help="include water; removes water color (170, 211, 223) by default"
+    )
+    parser.add_argument(
+        '-x',
+        action="store",
+        dest="nx",
+        type=int,
+        default=8,
+        help="number of tiles in X dimension to load per chart; 8 by default"
+    )
+    parser.add_argument(
+        '-y',
+        action="store",
+        dest="ny",
+        type=int,
+        default=11,
+        help="number of tiles in Y dimension to load per chart; 11 by default"
+    )
+    args = parser.parse_args()
+
     # Start plotting
-    zoom = 13
-    tile_path = '/home/mateusz/projects/gis/sweden_trip/OSM_tiles/'
     # Generate tile canvas
-    tiles = Tiles(tile_path, zoom=zoom)
+    tiles = Tiles(args.tile_path, zoom=args.zoom)
 
     # Get rectangles
-    gpx_trace = tiles.import_gpx('/home/mateusz/projects/gis/sweden_trip/routes/cycle_travel2.gpx')
+    gpx_trace = tiles.import_gpx(args.gpx)
     #rects = gen_rects(tile_array, dx=11, dy=15, minpx=1)
-    rects = gen_rects_from_track(gpx_trace, dx=8, dy=11)
-    print("Number of rects: ", len(rects))
+    rects = gen_rects_from_track(gpx_trace, dx=args.nx, dy=args.ny)
+    print("Number of charts: ", len(rects))
 
     # Plot legend with rectangles and track
     # Import track
@@ -308,7 +374,7 @@ if __name__ == "__main__":
         # Add rectangle number
         plt.text(r.x + r.dx * 0.25, r.y + r.dy * 0.75, str(idx), fontsize=9, color='white')
     plt.plot(lon, lat)
-    plt.savefig('/home/mateusz/projects/gis/sweden_trip/OSM_map/legend.png')
+    plt.savefig(os.path.join(args.output_dir, 'legend.png'))
 
     # Save separate maps
-    tiles.generate_maps(rects, track=gpx_trace, path='/home/mateusz/projects/gis/sweden_trip/OSM_map/', gray=True)
+    tiles.generate_maps(rects, track=gpx_trace, path=args.output_dir, gray=args.gray, water=args.water)
