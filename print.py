@@ -17,6 +17,68 @@ def deg2num(lat_deg, lon_deg, zoom):
     return (xtile, ytile)
 
 
+class Tiles:
+    def __init__(self, path, zoom, tile_size='256x256'):
+        self.path = path
+        self.zoom = zoom
+        self.tile_px = [int(px) for px in tile_size.split('x')]
+        self.tiles = self.get_tiles(os.path.join(path, str(zoom)))
+        self.tile_array, self.tile_range = self.gen_tile_array(self.tiles)
+
+    def get_tiles(self, path):
+        tiles = []
+        for files in os.walk(path):
+            if len(files[2]) == 0:
+                continue
+            x = re.search(r'/([0-9]+)$', files[0])[1]
+            for f in files[2]:
+                y = re.search('[0-9]+', f)[0]
+                tiles.append((int(x), int(y)))
+        return tiles
+
+    def gen_tile_array(self, tiles):
+        x = [xy[0] for xy in tiles]
+        y = [xy[1] for xy in tiles]
+        tile_range = {
+            'x': [min(x), max(x)],
+            'y': [min(y), max(y)],
+            'dx': max(x) - min(x),
+            'dy': max(y) - min(y)
+        }
+        print("X: %s - %s" % (tile_range['x'][0], tile_range['x'][1]))
+        print("Y: %s - %s" % (tile_range['y'][0], tile_range['y'][1]))
+
+        tile_array = np.zeros((tile_range['y'][1] - tile_range['y'][0] + 1, tile_range['x'][1] - tile_range['x'][0] + 1))
+        for c in tiles:
+            tile_array[c[1] - tile_range['y'][0], c[0] - tile_range['x'][0]] = 1
+        return tile_array, tile_range
+
+    def import_gpx(self, gpx):
+        lat = []
+        lon = []
+        gpx_track = gpxpy.parse(open(gpx, 'r'))
+        for track in gpx_track.tracks:
+            for segment in track.segments:
+                for point in segment.points:
+                    x, y = deg2num(point.latitude, point.longitude, zoom=self.zoom)
+                    x -= self.tile_range['x'][0]
+                    y -= self.tile_range['y'][0]
+                    # Add middle points in case abs diff >= 1
+                    if len(lat) > 1:
+                        dx = x - lon[-1]
+                        dy = y - lat[-1]
+                        if abs(dx) >= 1 or abs(dy) >= 1:
+                            nx = int(abs(dx))
+                            ny = int(abs(dy))
+                            n = max(nx, ny)
+                            for _ in range(n):
+                                lon.append(lon[-1] + dx / (n+1))
+                                lat.append(lat[-1] + dy / (n+1))
+                    lon.append(x)
+                    lat.append(y)
+        return (lon, lat)
+
+
 class Rect:
     def __init__(self, x, y, dx, dy):
         self.x = x
@@ -31,19 +93,19 @@ class Rect:
         # Add the patch to the Axes
         ax.add_patch(rect)
 
-    def stitch_array(self, tile_array, tile_range, path, size='256x256'):
-        px_size = [int(px) for px in size.split('x')]
+    def stitch_array(self, tiles):
+        px_size = tiles.tile_px
         x_size = px_size[0] * self.dx
         y_size = px_size[1] * self.dy
         # Create an empty image
         result = Image.new('RGB', (x_size, y_size), color=(255, 255, 255))
         for x in range(self.x, self.x1):
             for y in range(self.y, self.y1):
-                if tile_array[y, x] == 0:
+                if tiles.tile_array[y, x] == 0:
                     continue
-                x_tile = x + tile_range['x'][0]
-                y_tile = y + tile_range['y'][0]
-                tile_file = '/'.join([path, str(x_tile), str(y_tile) + '.png'])
+                x_tile = x + tiles.tile_range['x'][0]
+                y_tile = y + tiles.tile_range['y'][0]
+                tile_file = os.path.join(tiles.path, str(tiles.zoom), str(x_tile), str(y_tile) + '.png') 
                 # print('Loading ', tile_file)
                 tile_image = Image.open(tile_file)
                 result.paste(im=tile_image, box=((x-self.x) * px_size[0], (y-self.y) * px_size[1]))
@@ -57,18 +119,18 @@ class Rect:
                 result.append(((coord[0] - self.x) * px_size[0], (coord[1] - self.y) * px_size[1]))
         return result
 
-    def add_scale(self, img, tile_range, zoom, pos=(0.03, 0.97), size='256x256'):
-        px_size = [int(px) for px in size.split('x')]
+    def add_scale(self, img, tiles, pos=(0.03, 0.97)):
+        px_size = tiles.tile_px
         x = pos[0] * self.dx * px_size[0]
         y = pos[1] * self.dy * px_size[1]
         # Get lat for px y coordinate
         # From: https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Tile_numbers_to_lon..2Flat._2
-        n = 2.0 ** zoom
-        lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * (tile_range['y'][0] + self.y + pos[1] * self.dy) / n)))
+        n = 2.0 ** tiles.zoom
+        lat_rad = math.atan(math.sinh(math.pi * (1 - 2 * (tiles.tile_range['y'][0] + self.y + pos[1] * self.dy) / n)))
         # Get m / px 
         # https://wiki.openstreetmap.org/wiki/Zoom_levels
         C = 2 * math.pi * 6378137.0
-        m_per_px = C * math.cos(lat_rad) / 2 ** (zoom + math.log2(px_size[0]))
+        m_per_px = C * math.cos(lat_rad) / 2 ** (tiles.zoom + math.log2(px_size[0]))
         km1 = 1000 / m_per_px
         km5 = 5000 / m_per_px
         km10 = 10000 / m_per_px
@@ -89,33 +151,6 @@ class Rect:
         del draw
 
 
-def get_tiles(path):
-    tiles = []
-    for files in os.walk(path):
-        if len(files[2]) == 0:
-            continue
-        x = re.search(r'/([0-9]+)$', files[0])[1]
-        for f in files[2]:
-            y = re.search('[0-9]+', f)[0]
-            tiles.append((int(x), int(y)))
-    return tiles
-
-def gen_tile_array(tiles):
-    x = [xy[0] for xy in tiles]
-    y = [xy[1] for xy in tiles]
-    tile_range = {
-        'x': [min(x), max(x)],
-        'y': [min(y), max(y)],
-        'dx': max(x) - min(x),
-        'dy': max(y) - min(y)
-    }
-    print("X: %s - %s" % (tile_range['x'][0], tile_range['x'][1]))
-    print("Y: %s - %s" % (tile_range['y'][0], tile_range['y'][1]))
-
-    tile_array = np.zeros((tile_range['y'][1] - tile_range['y'][0] + 1, tile_range['x'][1] - tile_range['x'][0] + 1))
-    for c in tiles:
-        tile_array[c[1] - tile_range['y'][0], c[0] - tile_range['x'][0]] = 1
-    return tile_array, tile_range
 
 def gen_rects(tile_array, dx=10, dy=10, minpx=0):
     rects = []
@@ -130,7 +165,7 @@ def gen_rects(tile_array, dx=10, dy=10, minpx=0):
                 rects.append(rect)
     return rects
 
-def gen_rects_from_track(track, dims, dx=10, dy=10, border=1):
+def gen_rects_from_track(track, dx=10, dy=10, border=1):
     # TODO: Change into an iterator over new points
     def get_extent(current_points):
         x = [xy[0] for xy in current_points]
@@ -170,44 +205,18 @@ def gen_rects_from_track(track, dims, dx=10, dy=10, border=1):
         prev_P = P
     return rects
 
-def import_gpx(gpx, zoom):
-    lat = []
-    lon = []
-
-    gpx_track = gpxpy.parse(open(gpx, 'r'))
-    for track in gpx_track.tracks:
-        for segment in track.segments:
-            for point in segment.points:
-                x, y = deg2num(point.latitude, point.longitude, zoom=zoom)
-                x -= tile_dims['x'][0]
-                y -= tile_dims['y'][0]
-                # Add middle points in case abs diff >= 1
-                if len(lat) > 1:
-                    dx = x - lon[-1]
-                    dy = y - lat[-1]
-                    if abs(dx) >= 1 or abs(dy) >= 1:
-                        nx = int(abs(dx))
-                        ny = int(abs(dy))
-                        n = max(nx, ny)
-                        for _ in range(n):
-                            lon.append(lon[-1] + dx / (n+1))
-                            lat.append(lat[-1] + dy / (n+1))
-                lon.append(x)
-                lat.append(y)
-    return (lon, lat)
-
 
 if __name__ == "__main__":
     # Start plotting
     zoom = 13
-    path = '/home/mateusz/projects/gis/sweden_trip/OSM_tiles/{}/'.format(zoom)
-    tiles = get_tiles(path)
-    tile_array, tile_dims = gen_tile_array(tiles)
+    path = '/home/mateusz/projects/gis/sweden_trip/OSM_tiles/'
+    # Generate tile canvas
+    tiles = Tiles(path, zoom=zoom)
 
     # Get rectangles
-    gpx_trace = import_gpx('/home/mateusz/projects/gis/sweden_trip/routes/cycle_travel2.gpx', zoom)
+    gpx_trace = tiles.import_gpx('/home/mateusz/projects/gis/sweden_trip/routes/cycle_travel2.gpx')
     #rects = gen_rects(tile_array, dx=11, dy=15, minpx=1)
-    rects = gen_rects_from_track(gpx_trace, tile_dims, dx=8, dy=11)
+    rects = gen_rects_from_track(gpx_trace, dx=8, dy=11)
     print("Number of rects: ", len(rects))
 
     # Plot legend
@@ -219,7 +228,7 @@ if __name__ == "__main__":
     #plt.plot(lat, lon)
     # Get the current reference
     plt.figure(figsize=(10,10)) 
-    plt.matshow(tile_array)
+    plt.matshow(tiles.tile_array)
     ax = plt.gca()
     # Create a Rectangle patch for each rectangle
     for idx, r in enumerate(rects):
@@ -229,18 +238,18 @@ if __name__ == "__main__":
     plt.savefig('/home/mateusz/projects/gis/sweden_trip/OSM_map/legend.png')
 
 
-    def gen_map(track=None):
+    def gen_map(tiles, rectangles, track=None):
         # Import track
         lat = []
         lon = []
         if track is not None:
             (lon, lat) = track
         # save Image
-        for idx, r in enumerate(rects):
+        for idx, r in enumerate(rectangles):
             # Create canvas
-            img = r.stitch_array(tile_array, tile_dims, path)
+            img = r.stitch_array(tiles)
             # Add scale
-            r.add_scale(img, tile_dims, zoom)
+            r.add_scale(img, tiles)
             # Add track
             if track is not None:
                 cut_track = r.cut_path(lon, lat)
@@ -269,4 +278,4 @@ if __name__ == "__main__":
             # Save as PNG
             img.save(img_file, 'PNG')
 
-    gen_map(track=gpx_trace)
+    gen_map(tiles, rects, track=gpx_trace)
