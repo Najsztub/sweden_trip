@@ -152,18 +152,18 @@ class Rect:
 
 
 
-def gen_rects(tile_array, dx=10, dy=10, minpx=0):
-    rects = []
-    (size_y, size_x) = tile_array.shape
+def gen_rects(tiles, dx=10, dy=10, minpx=0):
+    box_list = []
+    (size_y, size_x) = tiles.tile_array.shape
     for n_x in range(int(np.ceil(size_x/dx))):
         for n_y in range(int(np.ceil(size_y/dy))):
             d_x = min((n_x+1)*dx, size_x) - n_x * dx
             d_y = min((n_y+1)*dy, size_y) - n_y * dy
-            rect = Rect(n_x*dx, n_y*dy, d_x, d_y)
-            subarr = tile_array[rect.y:rect.y1, rect.x:rect.x1]
+            box = Rect(n_x*dx, n_y*dy, d_x, d_y)
+            subarr = tiles.tile_array[box.y:box.y1, box.x:box.x1]
             if subarr.sum((0, 1)) > minpx:
-                rects.append(rect)
-    return rects
+                box_list.append(box)
+    return box_list
 
 def gen_rects_from_track(track, dx=10, dy=10, border=1):
     # Range calculating class
@@ -211,11 +211,13 @@ def gen_rects_from_track(track, dx=10, dy=10, border=1):
             if prev_P:
                 rot_dx = dx
                 rot_dy = dy
+                x = prev_extent['x'][0] - (rot_dx - prev_extent['dx']) / 2
+                y = prev_extent['y'][0]
             else:
                 rot_dx = dy
                 rot_dy = dx
-            x = prev_extent['x'][0] - (rot_dx - prev_extent['dx']) / 2
-            y = prev_extent['y'][0] - (rot_dy - prev_extent['dy']) / 2
+                x = prev_extent['x'][0]
+                y = prev_extent['y'][0] - (rot_dy - prev_extent['dy']) / 2
             rects.append(Rect(int(x), int(y), rot_dx, rot_dy))
             prev_P = False
             prev_extent = {}
