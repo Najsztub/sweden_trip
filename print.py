@@ -78,6 +78,48 @@ class Tiles:
                     lat.append(y)
         return (lon, lat)
 
+    def generate_maps(self, rectangles, path, track=None, prefix='stitch', water=False, gray=False):
+        # Import track
+        lat = []
+        lon = []
+        if track is not None:
+            (lon, lat) = track
+        # save Image
+        for idx, r in enumerate(rectangles):
+            # Create canvas
+            img = r.stitch_array(self)
+            # Add page number
+            font = ImageFont.truetype("DejaVuSans.ttf", 48)
+            ImageDraw.Draw(img).text((10, 10), str(idx), (0, 0, 0), font=font)
+            # Add scale
+            r.add_scale(img, self)
+            # Add track
+            if track is not None:
+                cut_track = r.cut_path(lon, lat)
+                if len(cut_track) > 1:
+                    print("Track length: %s segments" % len(cut_track))
+                    draw = ImageDraw.Draw(img)
+                    draw.line(cut_track, fill=(0, 0, 0), width=2)
+                    del draw
+            img_file = os.path.join(path, '{}_{}.png'.format(prefix, idx))
+            print("Saving ", img_file)
+            # Remove water; color as white
+            if not water:
+                # Replace water with white colour
+                data = np.array(img)   # "data" is a height x width x 3 numpy array
+                red, green, blue = data.T # Temporarily unpack the bands for readability
+                # Replace colors
+                water_px = (red == 170) & (green == 211) & (blue == 223) 
+                data[:, :][water_px.T] = (255, 255, 255) # Transpose back needed
+                img = Image.fromarray(data)
+            # Enhance contrast and convert to grayscale
+            if gray:
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(1.25).convert('L')
+            # Save as PNG
+            img.save(img_file, 'PNG')
+
+
 
 class Rect:
     def __init__(self, x, y, dx, dy):
@@ -95,12 +137,12 @@ class Rect:
 
     def stitch_array(self, tiles):
         px_size = tiles.tile_px
-        x_size = px_size[0] * self.dx
-        y_size = px_size[1] * self.dy
+        x_size = px_size[0] * math.ceil(self.dx)
+        y_size = px_size[1] * math.ceil(self.dy)
         # Create an empty image
         result = Image.new('RGB', (x_size, y_size), color=(255, 255, 255))
-        for x in range(self.x, self.x1):
-            for y in range(self.y, self.y1):
+        for x in range(int(self.x), int(self.x1)):
+            for y in range(int(self.y), int(self.y1)):
                 if tiles.tile_array[y, x] == 0:
                     continue
                 x_tile = x + tiles.tile_range['x'][0]
@@ -109,7 +151,16 @@ class Rect:
                 # print('Loading ', tile_file)
                 tile_image = Image.open(tile_file)
                 result.paste(im=tile_image, box=((x-self.x) * px_size[0], (y-self.y) * px_size[1]))
-        return result
+        crop = False
+        for dim in [self.x, self.y, self.dx, self.dy]:
+            crop |= (int(dim) - dim) != 0
+        if crop:
+            x0 = int((self.x - int(self.x)) * px_size[0])
+            y0 = int((self.y - int(self.y)) * px_size[1])
+            x1 = int((self.x1 - int(self.x1)) * px_size[0])
+            y1 = int((self.y1 - int(self.y1)) * px_size[1])
+            result = result.crop((x0, y0, x1, y1))
+        return result 
 
     def cut_path(self, lon, lat, size='256x256'):
         px_size = [int(px) for px in size.split('x')]
@@ -254,49 +305,10 @@ if __name__ == "__main__":
     # Create a Rectangle patch for each rectangle
     for idx, r in enumerate(rects):
         r.add_plot(ax)
+        # Add rectangle number
         plt.text(r.x + r.dx * 0.25, r.y + r.dy * 0.75, str(idx), fontsize=9, color='white')
     plt.plot(lon, lat)
     plt.savefig('/home/mateusz/projects/gis/sweden_trip/OSM_map/legend.png')
 
-
-    def gen_map(tiles, rectangles, track=None):
-        # Import track
-        lat = []
-        lon = []
-        if track is not None:
-            (lon, lat) = track
-        # save Image
-        for idx, r in enumerate(rectangles):
-            # Create canvas
-            img = r.stitch_array(tiles)
-            # Add scale
-            r.add_scale(img, tiles)
-            # Add track
-            if track is not None:
-                cut_track = r.cut_path(lon, lat)
-                if len(cut_track) > 1:
-                    print("Track length: %s segments" % len(cut_track))
-                    draw = ImageDraw.Draw(img)
-                    draw.line(cut_track, fill=(0, 0, 0), width=2)
-                    del draw
-            img_file = '/home/mateusz/projects/gis/sweden_trip/OSM_map/stitch_{}.png'.format(idx)
-            print("Saving ", img_file)
-
-            data = np.array(img)   # "data" is a height x width x 3 numpy array
-            red, green, blue = data.T # Temporarily unpack the bands for readability
-
-            # Replace water with white colour
-            water = (red == 170) & (green == 211) & (blue == 223) 
-            data[:, :][water.T] = (255, 255, 255) # Transpose back needed
-            img = Image.fromarray(data)
-            # Add page number
-            font = ImageFont.truetype("DejaVuSans.ttf", 48)
-            ImageDraw.Draw(img).text((10, 10), str(idx), (0, 0, 0), font=font)
-            # Enhance contrast and convert to grayscale
-            enhancer = ImageEnhance.Contrast(img)
-            img = enhancer.enhance(1.25).convert('L')
-            # Add scale - km measure
-            # Save as PNG
-            img.save(img_file, 'PNG')
-
-    gen_map(tiles, rects, track=gpx_trace)
+    # Save separate maps
+    tiles.generate_maps(rects, track=gpx_trace, path='/home/mateusz/projects/gis/sweden_trip/OSM_map/', gray=True)
