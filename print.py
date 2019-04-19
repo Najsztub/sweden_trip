@@ -89,9 +89,9 @@ class Rect:
         self.y1 = y + dy
 
     def add_plot(self, ax):
-        rect = Rectangle((self.x, self.y), self.dx, self.dy, linewidth=1, edgecolor='r', facecolor='none')
+        rectangle = Rectangle((self.x, self.y), self.dx, self.dy, linewidth=1, edgecolor='r', facecolor='none')
         # Add the patch to the Axes
-        ax.add_patch(rect)
+        ax.add_patch(rectangle)
 
     def stitch_array(self, tiles):
         px_size = tiles.tile_px
@@ -166,27 +166,47 @@ def gen_rects(tile_array, dx=10, dy=10, minpx=0):
     return rects
 
 def gen_rects_from_track(track, dx=10, dy=10, border=1):
-    # TODO: Change into an iterator over new points
-    def get_extent(current_points):
-        x = [xy[0] for xy in current_points]
-        y = [xy[1] for xy in current_points]
-        tile_range = {
-            'x': [int(min(x)), int(max(x))],
-            'y': [int(min(y)), int(max(y))],
-            'dx': int(max(x)) - int(min(x)) + 1,
-            'dy': int(max(y)) - int(min(y)) + 1
-        }
-        return tile_range
+    # Range calculating class
+    class Range:
+        @classmethod
+        def reset(cls):
+            cls.range = {
+                'x': [None, None],
+                'y': [None, None],
+                'dx': 0,
+                'dy': 0
+            }
+            cls.n = 0
+        @classmethod
+        def get_extent(cls, point):
+            if cls.n == 0:
+                cls.range['x'] = [point[0], point[0]]
+                cls.range['y'] = [point[1], point[1]]
+            else:
+                min_x = int(min(cls.range['x'][0], point[0]))
+                min_y = int(min(cls.range['y'][0], point[1]))
+                max_x = int(max(cls.range['x'][1], point[0]))
+                max_y = int(max(cls.range['y'][1], point[1]))
+                cls.range = {
+                    'x': [min_x, max_x],
+                    'y': [min_y, max_y],
+                    'dx': max_x - min_x + 1,
+                    'dy': max_y - min_y + 1
+                }
+            cls.n += 1
+            return cls.range
+    # Initialize Range with empty range
+    Range.reset()
     number_points = len(track[0])
     rects = []
-    current_points = []
     prev_P = False
     prev_extent = {}
     for idx, point in enumerate(zip(track[0], track[1])):
-        current_points.append(point)
-        extent = get_extent(current_points)
+        extent = Range.get_extent(point)
         P = (extent['dx'] <= (dx - border)) and (extent['dy'] <= (dy - border))
         L = (extent['dx'] <= (dy - border)) and (extent['dy'] <= (dx - border))
+        # If neither Portrait nor Landscape view fits, create a rectangle 
+        # from the previous fitting view
         if len(prev_extent) > 0 and (((P or L) == False) or idx == number_points - 1):
             if prev_P:
                 rot_dx = dx
@@ -197,9 +217,9 @@ def gen_rects_from_track(track, dx=10, dy=10, border=1):
             x = prev_extent['x'][0] - (rot_dx - prev_extent['dx']) / 2
             y = prev_extent['y'][0] - (rot_dy - prev_extent['dy']) / 2
             rects.append(Rect(int(x), int(y), rot_dx, rot_dy))
-            current_points = [point]
             prev_P = False
             prev_extent = {}
+            Range.reset()
             continue
         prev_extent = extent
         prev_P = P
@@ -209,9 +229,9 @@ def gen_rects_from_track(track, dx=10, dy=10, border=1):
 if __name__ == "__main__":
     # Start plotting
     zoom = 13
-    path = '/home/mateusz/projects/gis/sweden_trip/OSM_tiles/'
+    tile_path = '/home/mateusz/projects/gis/sweden_trip/OSM_tiles/'
     # Generate tile canvas
-    tiles = Tiles(path, zoom=zoom)
+    tiles = Tiles(tile_path, zoom=zoom)
 
     # Get rectangles
     gpx_trace = tiles.import_gpx('/home/mateusz/projects/gis/sweden_trip/routes/cycle_travel2.gpx')
@@ -219,13 +239,12 @@ if __name__ == "__main__":
     rects = gen_rects_from_track(gpx_trace, dx=8, dy=11)
     print("Number of rects: ", len(rects))
 
-    # Plot legend
+    # Plot legend with rectangles and track
     # Import track
     lat = []
     lon = []
     if gpx_trace is not None:
         (lon, lat) = gpx_trace
-    #plt.plot(lat, lon)
     # Get the current reference
     plt.figure(figsize=(10,10)) 
     plt.matshow(tiles.tile_array)
