@@ -1,0 +1,4 @@
+*.pyc
+/OSM_*
+*.code-workspace
+*.qgz
