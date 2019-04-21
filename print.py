@@ -11,15 +11,6 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 
-# From: https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Tile_numbers_to_lon..2Flat._2
-def deg2num(lat_deg, lon_deg, zoom):
-    lat_rad = math.radians(lat_deg)
-    n = 2.0 ** zoom
-    xtile = (lon_deg + 180.0) / 360.0 * n
-    ytile = (1.0 - math.log(math.tan(lat_rad) + (1 / math.cos(lat_rad))) / math.pi) / 2.0 * n
-    return (xtile, ytile)
-
-
 class Tiles:
     def __init__(self, path, zoom, tile_size='256x256'):
         self.path = path
@@ -58,26 +49,29 @@ class Tiles:
         return tile_array, tile_range
 
     def import_gpx(self, gpx):
+        def add_middle_points():
+            dx = x - lon[-1]
+            dy = y - lat[-1]
+            if abs(dx) >= 1 or abs(dy) >= 1:
+                nx = int(abs(dx))
+                ny = int(abs(dy))
+                n = max(nx, ny)
+                for _ in range(n):
+                    lon.append(lon[-1] + dx / (n+1))
+                    lat.append(lat[-1] + dy / (n+1))
+
         lat = []
         lon = []
         gpx_track = gpxpy.parse(open(gpx, 'r'))
         for track in gpx_track.tracks:
             for segment in track.segments:
                 for point in segment.points:
-                    x, y = deg2num(point.latitude, point.longitude, zoom=self.zoom)
+                    x, y = utils.deg2num(point.latitude, point.longitude, zoom=self.zoom)
                     x -= self.tile_range['x'][0]
                     y -= self.tile_range['y'][0]
                     # Add middle points in case abs diff >= 1
                     if len(lat) > 1:
-                        dx = x - lon[-1]
-                        dy = y - lat[-1]
-                        if abs(dx) >= 1 or abs(dy) >= 1:
-                            nx = int(abs(dx))
-                            ny = int(abs(dy))
-                            n = max(nx, ny)
-                            for _ in range(n):
-                                lon.append(lon[-1] + dx / (n+1))
-                                lat.append(lat[-1] + dy / (n+1))
+                        add_middle_points()
                     lon.append(x)
                     lat.append(y)
         return (lon, lat)
@@ -175,6 +169,24 @@ class Box:
         return within_x and within_y
 
     def cut_path(self, lon, lat, size='256x256'):
+        def add_intersection():
+            # Generate line equations Ax + By = C
+            line = utils.line(prev_pt, pt)
+            top = {'a': 0, 'b': 1, 'c': self.y1}
+            bottom = {'a': 0, 'b': 1, 'c': self.y}
+            left = {'a': 1, 'b': 0, 'c': self.x}
+            right = {'a': 1, 'b': 0, 'c': self.x1}
+            # Check intersection of segment with edges
+            pt_begin = None
+            for edge in [top, bottom, left, right]:
+                intersection = utils.line_intersection(line, edge)
+                if intersection is None:
+                    continue
+                if self._is_in_range(intersection, pt, prev_pt):
+                    pt_begin = intersection
+            if pt_begin is not None:
+                result.append(((pt_begin[0] - self.x) * px_size[0], (pt_begin[1] - self.y) * px_size[1]))    
+
         px_size = [int(px) for px in size.split('x')]
         result = []
         path_len = len(lon)
@@ -185,43 +197,13 @@ class Box:
                 # Add previous point if idx != 0
                 if len(result) == 0 and pt_idx > 0:
                     prev_pt = (lon[pt_idx - 1], lat[pt_idx - 1])
-                    # Generate line equations Ax + By = C
-                    line = utils.line(prev_pt, pt)
-                    top = {'a': 0, 'b': 1, 'c': self.y1}
-                    bottom = {'a': 0, 'b': 1, 'c': self.y}
-                    left = {'a': 1, 'b': 0, 'c': self.x}
-                    right = {'a': 1, 'b': 0, 'c': self.x1}
-                    # Check intersection of segment with edges
-                    pt_begin = None
-                    for edge in [top, bottom, left, right]:
-                        intersection = utils.line_intersection(line, edge)
-                        if intersection is None:
-                            continue
-                        if self._is_in_range(intersection, pt, prev_pt):
-                            pt_begin = intersection
-                    if pt_begin is not None:
-                        result.append(((pt_begin[0] - self.x) * px_size[0], (pt_begin[1] - self.y) * px_size[1]))    
+                    add_intersection()
                 # Add current point
                 result.append(((pt[0] - self.x) * px_size[0], (pt[1] - self.y) * px_size[1]))
             # Add new point if previous was within and current is not  and is not the last point
             elif prev_within and pt_idx < path_len:
                 prev_pt = (lon[pt_idx - 1], lat[pt_idx - 1])
-                # Generate line equations Ax + By = C
-                line = utils.line(prev_pt, pt)
-                top = {'a': 0, 'b': 1, 'c': self.y1}
-                bottom = {'a': 0, 'b': 1, 'c': self.y}
-                left = {'a': 1, 'b': 0, 'c': self.x}
-                right = {'a': 1, 'b': 0, 'c': self.x1}
-                # Check intersection of segment with edges
-                pt_end = None
-                for edge in [top, bottom, left, right]:
-                    intersection = utils.line_intersection(line, edge)
-                    if intersection is None:
-                        continue
-                    if self._is_in_range(intersection, pt, prev_pt):
-                        pt_end = intersection
-                if pt_end is not None:
-                    result.append(((pt_end[0] - self.x) * px_size[0], (pt_end[1] - self.y) * px_size[1]))    
+                add_intersection()
             prev_within = within_box
         return result
 
@@ -257,7 +239,6 @@ class Box:
         del draw
 
 
-
 def  gen_boxes(tiles, dx=10, dy=10, minpx=0):
     box_list = []
     (size_y, size_x) = tiles.tile_array.shape
@@ -270,6 +251,7 @@ def  gen_boxes(tiles, dx=10, dy=10, minpx=0):
             if subarr.sum((0, 1)) > minpx:
                 box_list.append(box)
     return box_list
+
 
 def  gen_boxes_from_track(track, dx=10, dy=10, border=1):
     # Range calculating class
