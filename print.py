@@ -20,14 +20,14 @@ class Tiles:
         self.tile_array, self.tile_range = self.gen_tile_array(self.tiles)
 
     def get_tiles(self, path):
-        tiles = []
+        tiles = set({})
         for files in os.walk(path):
             if len(files[2]) == 0:
                 continue
             x = re.search(r'/([0-9]+)$', files[0])[1]
             for f in files[2]:
                 y = re.search('[0-9]+', f)[0]
-                tiles.append((int(x), int(y)))
+                tiles.add((int(x), int(y)))
         print("Found %s tiles." % len(tiles))
         return tiles
 
@@ -138,16 +138,21 @@ class Box:
         y_size = px_size[1] * math.ceil(self.dy)
         # Create an empty image
         result = Image.new('RGB', (x_size, y_size), color=(255, 255, 255))
-        for x in range(int(self.x), int(self.x1)):
-            for y in range(int(self.y), int(self.y1)):
-                if tiles.tile_array[y, x] == 0:
-                    continue
-                x_tile = x + tiles.tile_range['x'][0]
-                y_tile = y + tiles.tile_range['y'][0]
-                tile_file = os.path.join(tiles.path, str(tiles.zoom), str(x_tile), str(y_tile) + '.png') 
-                # print('Loading ', tile_file)
-                tile_image = Image.open(tile_file)
-                result.paste(im=tile_image, box=((x-self.x) * px_size[0], (y-self.y) * px_size[1]))
+        range_x = range(int(self.x), int(self.x1))
+        range_y = range(int(self.y), int(self.y1))
+        box_tiles = set([(x + tiles.tile_range['x'][0], y + tiles.tile_range['y'][0]) for x in range_x for y in range_y])
+        missing_tiles = box_tiles - tiles.tiles
+        if len(missing_tiles) > 0:
+            print("Missing tiles: ", len(missing_tiles))
+        for tile in box_tiles:
+            canvas_x = tile[0] - tiles.tile_range['x'][0]
+            canvas_y = tile[1] - tiles.tile_range['y'][0]
+            if tiles.tile_array[canvas_y, canvas_x] == 0:
+                continue
+            tile_file = os.path.join(tiles.path, str(tiles.zoom), str(tile[0]), str(tile[1]) + '.png') 
+            # print('Loading ', tile_file)
+            tile_image = Image.open(tile_file)
+            result.paste(im=tile_image, box=((canvas_x-self.x) * px_size[0], (canvas_y-self.y) * px_size[1]))
         crop = False
         for dim in [self.x, self.y, self.dx, self.dy]:
             crop |= (int(dim) - dim) != 0
