@@ -5,11 +5,13 @@ import math
 from PIL import Image, ImageDraw, ImageOps, ImageEnhance, ImageFont
 import argparse
 import gpxpy
+import utils
 
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
 
+# From: https://wiki.openstreetmap.org/wiki/Slippy_map_tilenames#Tile_numbers_to_lon..2Flat._2
 def deg2num(lat_deg, lon_deg, zoom):
     lat_rad = math.radians(lat_deg)
     n = 2.0 ** zoom
@@ -163,12 +165,64 @@ class Box:
             result = result.crop((x0, y0, x1, y1))
         return result 
 
+    def _is_in_range(self, pt, pt1, pt2):
+        max_x = max(pt1[0], pt2[0])
+        min_x = min(pt1[0], pt2[0])
+        max_y = max(pt1[1], pt2[1])
+        min_y = min(pt1[1], pt2[1])
+        within_x = (pt[0] >= min_x) and (pt[0] <= max_x)
+        within_y = (pt[1] >= min_y) and (pt[1] <= max_y)
+        return within_x and within_y
+
     def cut_path(self, lon, lat, size='256x256'):
         px_size = [int(px) for px in size.split('x')]
         result = []
-        for coord in zip(lon, lat):
-            if coord[0] >= self.x and coord[0] <= self.x1 and coord[1] >= self.y and coord[1] <= self.y1:
-                result.append(((coord[0] - self.x) * px_size[0], (coord[1] - self.y) * px_size[1]))
+        path_len = len(lon)
+        prev_within = False
+        for pt_idx, pt in enumerate(zip(lon, lat)):
+            within_box = pt[0] >= self.x and pt[0] <= self.x1 and pt[1] >= self.y and pt[1] <= self.y1
+            if within_box:
+                # Add previous point if idx != 0
+                if len(result) == 0 and pt_idx > 0:
+                    prev_pt = (lon[pt_idx - 1], lat[pt_idx - 1])
+                    # Generate line equations Ax + By = C
+                    line = utils.line(prev_pt, pt)
+                    top = {'a': 0, 'b': 1, 'c': self.y1}
+                    bottom = {'a': 0, 'b': 1, 'c': self.y}
+                    left = {'a': 1, 'b': 0, 'c': self.x}
+                    right = {'a': 1, 'b': 0, 'c': self.x1}
+                    # Check intersection of segment with edges
+                    pt_begin = None
+                    for edge in [top, bottom, left, right]:
+                        intersection = utils.line_intersection(line, edge)
+                        if intersection is None:
+                            continue
+                        if self._is_in_range(intersection, pt, prev_pt):
+                            pt_begin = intersection
+                    if pt_begin is not None:
+                        result.append(((pt_begin[0] - self.x) * px_size[0], (pt_begin[1] - self.y) * px_size[1]))    
+                # Add current point
+                result.append(((pt[0] - self.x) * px_size[0], (pt[1] - self.y) * px_size[1]))
+            # Add new point if previous was within and current is not  and is not the last point
+            elif prev_within and pt_idx < path_len:
+                prev_pt = (lon[pt_idx - 1], lat[pt_idx - 1])
+                # Generate line equations Ax + By = C
+                line = utils.line(prev_pt, pt)
+                top = {'a': 0, 'b': 1, 'c': self.y1}
+                bottom = {'a': 0, 'b': 1, 'c': self.y}
+                left = {'a': 1, 'b': 0, 'c': self.x}
+                right = {'a': 1, 'b': 0, 'c': self.x1}
+                # Check intersection of segment with edges
+                pt_end = None
+                for edge in [top, bottom, left, right]:
+                    intersection = utils.line_intersection(line, edge)
+                    if intersection is None:
+                        continue
+                    if self._is_in_range(intersection, pt, prev_pt):
+                        pt_end = intersection
+                if pt_end is not None:
+                    result.append(((pt_end[0] - self.x) * px_size[0], (pt_end[1] - self.y) * px_size[1]))    
+            prev_within = within_box
         return result
 
     def add_scale(self, img, tiles, pos=(0.03, 0.97)):
@@ -204,7 +258,7 @@ class Box:
 
 
 
-def gen_rects(tiles, dx=10, dy=10, minpx=0):
+def  gen_boxes(tiles, dx=10, dy=10, minpx=0):
     box_list = []
     (size_y, size_x) = tiles.tile_array.shape
     for n_x in range(int(np.ceil(size_x/dx))):
@@ -217,7 +271,7 @@ def gen_rects(tiles, dx=10, dy=10, minpx=0):
                 box_list.append(box)
     return box_list
 
-def gen_rects_from_track(track, dx=10, dy=10, border=1):
+def  gen_boxes_from_track(track, dx=10, dy=10, border=1):
     # Range calculating class
     class Range:
         @classmethod
@@ -356,9 +410,9 @@ if __name__ == "__main__":
     # Get rectangles
     gpx_trace = tiles.import_gpx(args.gpx)
     # TODO: Create maps with all tiles if no GPX is given
-    #rects = gen_rects(tile_array, dx=11, dy=15, minpx=1)
-    rects = gen_rects_from_track(gpx_trace, dx=args.nx, dy=args.ny)
-    print("Number of charts: ", len(rects))
+    # boxes =  gen_boxes(tile_array, dx=11, dy=15, minpx=1)
+    boxes =  gen_boxes_from_track(gpx_trace, dx=args.nx, dy=args.ny)
+    print("Number of charts: ", len(boxes))
 
     # Plot legend with rectangles and track
     # Import track
@@ -371,7 +425,7 @@ if __name__ == "__main__":
     plt.matshow(tiles.tile_array)
     ax = plt.gca()
     # Create a Rectangle patch for each rectangle
-    for idx, r in enumerate(rects):
+    for idx, r in enumerate(boxes):
         r.add_plot(ax)
         # Add rectangle number
         plt.text(r.x + r.dx * 0.25, r.y + r.dy * 0.75, str(idx), fontsize=9, color='white')
@@ -379,4 +433,4 @@ if __name__ == "__main__":
     plt.savefig(os.path.join(args.output_dir, 'legend.png'))
 
     # Save separate maps
-    tiles.generate_maps(rects, track=gpx_trace, path=args.output_dir, gray=args.gray, water=args.water)
+    tiles.generate_maps(boxes, track=gpx_trace, path=args.output_dir, gray=args.gray, water=args.water)
