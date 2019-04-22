@@ -21,7 +21,7 @@ done
 
 if [ $gen = true ]
 then
-    ~/.venv/gis_env/bin/python print.py ./OSM_tiles -z 13 --gray --gpx ./routes/cycle_travel2.gpx -o ./OSM_map
+    ~/.venv/gis_env/bin/python print.py ./OSM_tiles -z 13 --gray --gpx ./routes/cycle_travel2.gpx -o ./OSM_map --water 173 222 255
 fi
 if [ $merge = true ]
 then

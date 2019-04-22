@@ -3,3 +3,5 @@
 *.code-workspace
 *.qgz
 launch.json
+/map
+/tiles
