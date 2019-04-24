@@ -307,8 +307,11 @@ def  gen_boxes(tiles, dx=10, dy=10, minpx=0):
         for n_y in range(int(np.ceil(size_y/dy))):
             d_x = min((n_x+1)*dx, size_x) - n_x * dx
             d_y = min((n_y+1)*dy, size_y) - n_y * dy
-            box = Box(n_x*dx, n_y*dy, d_x, d_y)
-            subarr = tiles.tile_array[box.y:box.y1, box.x:box.x1]
+            box = Box(tiles.tile_range['x'][0]+ n_x*dx, tiles.tile_range['y'][0] + n_y*dy, d_x, d_y)
+            subarr = tiles.tile_array[
+                box.y - tiles.tile_range['y'][0]:box.y1 - tiles.tile_range['y'][0], 
+                box.x - tiles.tile_range['x'][0]:box.x1 - tiles.tile_range['x'][0]
+            ]
             if subarr.sum((0, 1)) > minpx:
                 box_list.append(box)
     return box_list
@@ -465,7 +468,7 @@ if __name__ == "__main__":
     # Load GPX trace
     gpx_trace = tiles.import_gpx(args.gpx)
     # TODO: Create maps with all tiles if no GPX is given
-    # boxes =  gen_boxes(tile_array, dx=11, dy=15, minpx=1)
+    # boxes =  gen_boxes(tiles, dx=11, dy=15, minpx=1)
     boxes =  gen_boxes_from_track(gpx_trace, dx=args.nx, dy=args.ny)
     print("Number of charts: ", len(boxes))
     # Update Tiles with new extent from boxes
