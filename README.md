@@ -41,6 +41,8 @@ the GUI to OSM tiles that which I'll be using as tile source for my script.
 I wrote the script under Python 3.7. I used the following dependencies: requests, Numpy, Matplotlib, Pillow and [gpxpy](https://github.com/tkrajina/gpxpy).
 All the modules should be available through `pip`.
 
+Details on how the script works can be found on [my personal page](https://maten.pl/post/sweden_trip/).
+
 ### Syntax
 Usage: 
 ```
