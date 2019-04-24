@@ -502,7 +502,10 @@ if __name__ == "__main__":
     for idx, r in enumerate(boxes):
         r.add_plot(ax, tiles)
         # Add rectangle number
-        plt.text(r.x + r.dx * 0.25, r.y + r.dy * 0.75, str(idx), fontsize=9, color='white')
+        plt.text(
+            r.x + r.dx * 0.25 - tiles.tile_range['x'][0], 
+            r.y + r.dy * 0.75 - tiles.tile_range['y'][0], 
+            str(idx), fontsize=9, color='white')
     plt.plot([x - tiles.tile_range['x'][0] for x in lon], [y - tiles.tile_range['y'][0] for y in lat])
     plt.savefig(os.path.join(args.output_dir, 'legend.png'))
 
